@@ -3,3 +3,4 @@ pandas
 matplotlib
 streamlit
 deep-translator
+beautifulsoup4
