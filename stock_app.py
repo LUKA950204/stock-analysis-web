@@ -26,7 +26,7 @@ def get_valid_ticker(user_input):
         return clean_input.upper()
     try:
         url = f"https://query1.finance.yahoo.com/v1/finance/search?q={clean_input}&quotesCount=1&newsCount=0"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         response = requests.get(url, headers=headers).json()
         if response.get('quotes'):
             return response['quotes'][0]['symbol']
@@ -44,7 +44,7 @@ st.sidebar.header("均線參數設定")
 ma_short = st.sidebar.slider("短期均線天數", 3, 10, 5)
 ma_long = st.sidebar.slider("長期均線天數", 10, 60, 20)
 
-# --- 3. 主畫面多功能標籤頁 (新增輿情與 AI 摘要分頁) ---
+# --- 3. 主畫面多功能標籤頁 ---
 tab1, tab2, tab_ai, tab2_5, tab3, tab4, tab5 = st.tabs([
     "📊 技術分析 (K線/價量/指標)", 
     "🔥 輿情熱度 (媒體/社群風向)",
@@ -59,7 +59,7 @@ tab1, tab2, tab_ai, tab2_5, tab3, tab4, tab5 = st.tabs([
 if stock_id:
     try:
         ticker_obj = yf.Ticker(stock_id)
-        df = ticker_obj.history(period="1y") # 改用 history 結構更穩定
+        df = ticker_obj.history(period="1y")
         
         if df.empty and user_input.strip().isdigit() and stock_id.endswith(".TW"):
             backup_stock_id = f"{user_input.strip()}.TWO"
@@ -69,7 +69,6 @@ if stock_id:
                 stock_id = backup_stock_id
 
         if not df.empty:
-            # 基礎均線計算
             df['MA_S'] = df['Close'].rolling(window=ma_short).mean()
             df['MA_L'] = df['Close'].rolling(window=ma_long).mean()
             current_p = float(df['Close'].iloc[-1])
@@ -95,79 +94,76 @@ if stock_id:
                         st.warning("❄️ 趨勢：長線之下 (偏空)")
 
             # =================================================================
-            # 🌟 新增功能 1：Tab 2 - 輿情熱度 (媒體/社群風向)
+            # Tab 2: 輿情熱度
             # =================================================================
             with tab2:
                 st.subheader(f"🗣️ {user_input} 網路輿情與熱度監測")
                 
                 with st.spinner("正在爬取並分析最新網路輿情..."):
-                    news_list = ticker_obj.news
+                    try:
+                        news_list = ticker_obj.news
+                    except:
+                        news_list = None
                     
-                    if news_list:
+                    if news_list and len(news_list) > 0:
                         st.write("### 📰 最新相關財經媒體報導")
-                        
-                        # 計算情緒分數的變數
                         positive_score = 0
                         negative_score = 0
-                        
-                        # 簡單情緒關鍵字字典
-                        pos_words = ['成長', '新高', '利多', '買進', '樂觀', '強勁', '擴廠', '噴出', '賺']
+                        pos_words = ['成長', '新高', '利多', '買進', '樂觀', '強勁', '擴廠', '獲利', '賺']
                         neg_words = ['衰退', '下滑', '利空', '跌', '保守', '壓力', '調降', '砍單', '減少']
 
-                        for item in news_list[:5]: # 顯示最新 5 筆
-                            title_en = item.get('title', '')
+                        has_valid_news = False
+                        for item in news_list[:5]:
+                            title_en = item.get('title', '').strip()
+                            if not title_en:
+                                continue
+                            
+                            has_valid_news = True
                             link = item.get('link', '#')
                             publisher = item.get('publisher', '財經新聞')
                             
-                            # 翻譯成中文來做情緒分析與顯示
                             try:
-                                title_zh = GoogleTranslator(source='en', target='zh-TW').translate(title_en)
+                                title_zh = GoogleTranslator(source='auto', target='zh-TW').translate(title_en)
                             except:
                                 title_zh = title_en
                             
                             st.markdown(f"**[{publisher}]** [{title_zh}]({link})")
                             
-                            # 統計情緒詞
                             for w in pos_words:
                                 if w in title_zh: positive_score += 1
                             for w in neg_words:
                                 if w in title_zh: negative_score += 1
                         
+                        if not has_valid_news:
+                            st.info("目前抓取的新聞未包含有效內文標題。")
+                        
                         st.markdown("---")
                         st.write("### 📊 媒體輿情溫度計 (情緒指標)")
-                        
-                        # 計算利多百分比
                         total_score = positive_score + negative_score
-                        if total_score > 0:
-                            bullish_ratio = (positive_score / total_score) * 100
-                        else:
-                            bullish_ratio = 50.0 # 查無明顯情緒時中立
+                        bullish_ratio = (positive_score / total_score) * 100 if total_score > 0 else 50.0
                             
                         col_m1, col_m2 = st.columns(2)
                         with col_m1:
                             st.metric("媒體看多比率 (Bullish Ratio)", f"{bullish_ratio:.1f}%")
-                            if bullish_ratio > 60:
+                            if bullish_ratio > 55:
                                 st.success("🔥 網路討論風向：一片看好，市場情緒樂觀！")
-                            elif bullish_ratio < 40:
+                            elif bullish_ratio < 45:
                                 st.error("❄️ 網路討論風向：保守悲觀，小心賣壓。")
                             else:
                                 st.info("😐 網路討論風向：多空交尾，情緒偏向中立。")
                         with col_m2:
-                            # 模擬社群討論度 (PTT/Dcard 概念)
                             st.write("**📱 社群媒體即時聲量 (模擬監測)**")
                             st.progress(int(bullish_ratio))
                             st.caption(f"今日關鍵字總體提及次數較昨日：+18.5% (量能加溫中)")
                     else:
-                        st.info("暫時無法取得該股票的最新網路新聞資料。")
+                        st.info("⚠️ 暫時無法從 Yahoo Finance 取得該股票的最新網路新聞。")
 
             # =================================================================
-            # 🌟 新增功能 2：Tab_AI - 🤖 AI 智慧摘要 (白話財報/法說會)
+            # Tab 3: AI 智慧摘要
             # =================================================================
             with tab_ai:
                 st.subheader(f"🤖 AI 智慧一分鐘白話摘要")
-                st.markdown("將複雜的財報數據與法說會重點，自動轉化為投資人一眼看懂的白話文。")
                 
-                # 撈取基本面數據做為 AI 的分析素材
                 try:
                     info = ticker_obj.info
                     summary_en = info.get('longBusinessSummary', '')
@@ -181,36 +177,32 @@ if stock_id:
                 if summary_en:
                     with st.spinner("AI 正在閱讀財報與法說會文本..."):
                         try:
-                            summary_zh = GoogleTranslator(source='en', target='zh-TW').translate(summary_en[:1500])
+                            summary_zh = GoogleTranslator(source='auto', target='zh-TW').translate(summary_en[:1000])
                         except:
                             summary_zh = "無法順利解析文本。"
                         
-                        # 模擬 AI 提煉精華與生成排版
                         st.write("### 💡 AI 幫你畫重點：")
-                        
                         c_ai1, c_ai2, c_ai3 = st.columns(3)
                         c_ai1.metric("目前本益比 (P/E)", f"{pe_ratio}")
                         c_ai2.metric("每股盈餘 (EPS)", f"{eps}")
                         c_ai3.metric("最新季營收年增率", f"{rev_growth:+.2f}%")
                         
                         st.markdown("#### 📝 **一分鐘白話經營結論**")
-                        # 根據營收成長率與基本面動態生成 AI 白話評語
-                        if rev_growth > 10:
+                        if isinstance(rev_growth, (int, float)) and rev_growth > 10:
                             ai_judgment = "🎯 **核心成長動能強勁！** 該公司目前主要受惠於市場強烈需求，核心業務營收大幅超預期。法說會釋出樂觀訊號，產能利用率逼近滿載，長線來看營運階梯式走高。"
-                        elif rev_growth < 0:
+                        elif isinstance(rev_growth, (int, float)) and rev_growth < 0:
                             ai_judgment = "⚠️ **營運進入修正調整期。** 最新財報顯示營收年增率下滑。主要面臨庫存去化、客戶拉貨放緩或成本上揚壓力。短期內法說會態度偏向保守，建議關注毛利率何時止跌回穩。"
                         else:
                             ai_judgment = "📈 **穩健經營，防守力佳。** 現階段核心營收表現持平。公司經營策略偏向穩紮穩打，擁有充足的現金流與穩定的市場份額。雖然短期內爆發力不足，但具備極佳的抗震防守屬性。"
                             
                         st.info(ai_judgment)
-                        
                         with st.expander("🔍 查看 AI 參考的原始公司深度業務資料"):
                             st.write(summary_zh)
                 else:
                     st.warning("無法從 Yahoo Finance 撈取足夠的財務文本，AI 無法進行白話摘要。")
 
             # =================================================================
-            # Tab 2_5: 即時盤態 (原 Tab 2)
+            # 後續其餘 Tab 保持不變...
             # =================================================================
             with tab2_5:
                 st.subheader("⚡ 即時盤態觀察")
@@ -233,9 +225,6 @@ if stock_id:
                     })
                     st.dataframe(detail_data, use_container_width=True)
 
-            # =================================================================
-            # Tab 3: 籌碼與券商
-            # =================================================================
             with tab3:
                 st.subheader("🔍 籌碼與主力動向")
                 st.info("ℹ️ 提示：Yahoo Finance 未提供台灣本土「券商分點」詳細資料。")
@@ -247,9 +236,6 @@ if stock_id:
                     st.write("### 📊 法人三大籌碼指標")
                     st.metric("外資買賣超 (估)", "+2,450 張")
 
-            # =================================================================
-            # Tab 4: 基本面與績效
-            # =================================================================
             with tab4:
                 st.subheader("📈 財務基本面與永續經營")
                 sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs(["📋 基本資料", "📊 營運績效", "💰 股利政策", "🌱 ESG 表現"])
@@ -266,9 +252,6 @@ if stock_id:
                     st.write("**ESG 永續風險評級：**")
                     st.success("✅ 該企業在環境與公司治理層面（ESG）屬於產業領先群（A級）。")
 
-            # =================================================================
-            # Tab 5: 研究與行事曆
-            # =================================================================
             with tab5:
                 st.subheader("📅 市場情報與周邊商品")
                 cx1, cx2, cx3 = st.columns(3)
