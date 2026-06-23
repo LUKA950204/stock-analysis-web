@@ -4,3 +4,4 @@ matplotlib
 streamlit
 deep-translator
 beautifulsoup4
+googlesearch-python
