@@ -1,7 +1,5 @@
-yfinance
 pandas
-matplotlib
-streamlit
-deep-translator
+requests
 beautifulsoup4
-googlesearch-python
+lxml
+streamlit
