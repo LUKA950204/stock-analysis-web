@@ -1,16 +1,67 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-from deep_translator import GoogleTranslator  # 引入翻譯套件
+import requests
+from deep_translator import GoogleTranslator
 
 # --- 1. 網頁基本設定 ---
 st.set_page_config(page_title="台股全方位互動分析系統", layout="wide")
 
 st.title("📈 台股全方位真實數據分析系統")
 
+# --- ⚙️ 智慧股票代號轉換工具 ---
+def get_valid_ticker(user_input):
+    """
+    將使用者輸入的中文名稱或純數字，智慧轉換為 yfinance 可讀的代號 (例如 2330.TW)
+    """
+    clean_input = user_input.strip()
+    
+    # 個案優化：使用者習慣直接輸入「台積電」，但 yf 搜尋有時會因為簡繁體或格式回傳非預期代號
+    common_mapping = {
+        "台積電": "2330.TW",
+        "鴻海": "2317.TW",
+        "聯發科": "2454.TW",
+        "長榮": "2603.TW",
+        "陽明": "2609.TW",
+        "萬海": "2615.TW",
+        "中鋼": "2002.TW",
+        "富邦金": "2881.TW",
+        "國泰金": "2882.TW",
+        "星宇航空": "2646.TW"
+    }
+    if clean_input in common_mapping:
+        return common_mapping[clean_input]
+
+    # 1. 如果是純數字 (例如 2330)，預設先補上 .TW (上市)
+    if clean_input.isdigit():
+        return f"{clean_input}.TW"
+    
+    # 2. 如果已經自帶 .TW 或 .TWO，直接回傳
+    if clean_input.upper().endswith(".TW") or clean_input.upper().endswith(".TWO"):
+        return clean_input.upper()
+        
+    # 3. 如果輸入的是文字 (例如名稱)，透過 Yahoo Finance API 模糊搜尋
+    try:
+        url = f"https://query1.finance.yahoo.com/v1/finance/search?q={clean_input}&quotesCount=1&newsCount=0"
+        # 模擬瀏覽器發出請求，避免被阻擋
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, headers=headers).json()
+        
+        if response.get('quotes'):
+            matched_ticker = response['quotes'][0]['symbol']
+            return matched_ticker
+    except:
+        pass
+        
+    return clean_input
+
 # --- 2. 側邊欄控制區 ---
 st.sidebar.header("查詢條件")
-stock_id = st.sidebar.text_input("請輸入股票代號 (例: 2330.TW)", "2330.TW")
+# 調整提示文字，讓使用者知道可以輸入名稱或純數字
+user_input = st.sidebar.text_input("請輸入股票名稱或代號", "台積電")
+
+# 透過智慧轉換工具取得真實的 yfinance 股票代號
+stock_id = get_valid_ticker(user_input)
 
 st.sidebar.markdown("---")
 st.sidebar.header("均線參數設定 (技術指標用)")
@@ -29,8 +80,16 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # --- 4. 核心數據撈取 ---
 if stock_id:
     try:
+        # 下載數據，並設定自動修復
         df = yf.download(stock_id, period="1y", group_by='column')
         
+        # 如果發現預設補 .TW 沒抓到資料(可能是上櫃股票)，自動嘗試換成 .TWO 再抓一次
+        if df.empty and user_input.strip().isdigit() and stock_id.endswith(".TW"):
+            backup_stock_id = f"{user_input.strip()}.TWO"
+            df = yf.download(backup_stock_id, period="1y", group_by='column')
+            if not df.empty:
+                stock_id = backup_stock_id
+
         if not df.empty:
             if isinstance(df.columns, pd.MultiIndex):
                 df = df.droplevel(level=1, axis=1)
@@ -45,7 +104,7 @@ if stock_id:
             with tab1:
                 col1, col2 = st.columns([3, 1])
                 with col1:
-                    st.subheader(f"{stock_id} 股價走勢與技術指標")
+                    st.subheader(f"📊 {user_input} ({stock_id}) 股價走勢圖")
                     chart_data = df[['Close', 'MA_S', 'MA_L']].copy()
                     chart_data.columns = ['收盤價', f'{ma_short}日均線', f'{ma_long}日均線']
                     st.line_chart(chart_data)
@@ -101,12 +160,11 @@ if stock_id:
                     st.metric("外資買賣超 (估)", "+2,450 張")
 
             # =================================================================
-            # Tab 4: 基本面與績效 (加上中英文切換功能)
+            # Tab 4: 基本面與績效
             # =================================================================
             with tab4:
                 st.subheader("📈 財務基本面與永續經營")
                 
-                # 撈取 yfinance 內建的英文簡介
                 try:
                     ticker_info = yf.Ticker(stock_id).info
                     summary_en = ticker_info.get('longBusinessSummary', 'No summary available.')
@@ -116,17 +174,13 @@ if stock_id:
                 sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs(["📋 基本資料", "📊 營運績效", "💰 股利政策", "🌱 ESG 表現"])
                 
                 with sub_tab1:
-                    # ✨ 新增：語系切換按鈕 (橫向排列)
                     lang = st.radio("選擇語言 (Select Language)", ["繁體中文", "English"], horizontal=True)
-                    
                     st.write("**公司業務概述：**")
                     
                     if lang == "繁體中文":
                         if summary_en and summary_en != "No summary available.":
-                            # 使用 Spinner 提示使用者正在翻譯中
                             with st.spinner("正在為您翻譯公司簡介..."):
                                 try:
-                                    # 呼叫翻譯模組將英文轉為繁體中文
                                     summary_zh = GoogleTranslator(source='en', target='zh-TW').translate(summary_en)
                                     st.write(summary_zh)
                                 except Exception as translation_error:
@@ -167,7 +221,7 @@ if stock_id:
                     st.dataframe(pd.DataFrame({'權證代號': ['03154P'], '履約價': [current_p*1.1]}))
 
         else:
-            st.error("⚠️ 找不到資料，請確認代號格式（如台股 2330.TW）。")
+            st.error(f"⚠️ 找不到【{user_input}】的資料。請確認輸入是否正確（若是數字代號，請檢查是否輸入錯誤）。")
             
     except Exception as e:
         st.error(f"❌ 程式執行發生錯誤！")
