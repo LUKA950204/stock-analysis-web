@@ -1,5 +1,7 @@
+yfinance
 pandas
-requests
-beautifulsoup4
-lxml
+matplotlib
 streamlit
+deep-translator
+beautifulsoup4
+googlesearch-python
