@@ -39,7 +39,6 @@ def get_valid_ticker(user_input):
 def fetch_dcard_volume(keyword):
     """真實爬取 Dcard 股票板最新文章，計算關鍵字熱度"""
     try:
-        # 爬取 Dcard 股票板最新 30 篇文章
         url = "https://www.dcard.tw/_api/forums/stock/posts?limit=30"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         posts = requests.get(url, headers=headers).json()
@@ -50,19 +49,17 @@ def fetch_dcard_volume(keyword):
             excerpt = post.get('excerpt', '')
             if keyword in title or keyword in excerpt:
                 mention_count += 1
-        return min(mention_count * 12, 100) # 轉換為 0-100 的熱度指數
+        return min(mention_count * 12, 100) 
     except:
-        return 45 # 失敗時回傳中立基準值
+        return 45 
 
 def fetch_threads_volume(keyword):
     """利用 Google Search 模擬 Threads 過去 24 小時內對該股票的討論加溫程度"""
     try:
-        # 模擬搜尋 Threads 上該關鍵字的近期討論度
         url = f"https://www.google.com/search?q=site:threads.net+%22{keyword}%22"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         res = requests.get(url, headers=headers)
         soup = BeautifulSoup(res.text, 'html.parser')
-        # 計算搜尋結果頁面中提及關鍵字的密集度
         text = soup.get_text()
         count = text.count(keyword)
         return min(30 + (count * 8), 100)
@@ -71,36 +68,51 @@ def fetch_threads_volume(keyword):
 
 # --- 2. 側邊欄控制區 ---
 st.sidebar.header("查詢條件")
-user_input = st.sidebar.text_input("請輸入股票名稱或代號", "台積電")
-stock_id = get_valid_ticker(user_input)
-
-# 取得乾淨的中文名稱(用於社群爬蟲)
-search_keyword = "台積電"
-for name, id_code in {
-    "台積電": "2330", "鴻海": "2317", "聯發科": "2454",
-    "長榮": "2603", "陽明": "2609", "萬海": "2615"
-}.items():
-    if id_code in stock_id or name in user_input:
-        search_keyword = name
+# 🌟 修改點 1：將預設值改為空字串 ""，讓一開始進來網頁時保持留白
+user_input = st.sidebar.text_input("請輸入股票名稱或代號 (例如: 2330 或 鴻海)", "")
 
 st.sidebar.markdown("---")
 st.sidebar.header("均線參數設定")
 ma_short = st.sidebar.slider("短期均線天數", 3, 10, 5)
 ma_long = st.sidebar.slider("長期均線天數", 10, 60, 20)
 
-# --- 3. 主畫面多功能標籤頁 ---
-tab1, tab2, tab_ai, tab2_5, tab3, tab4, tab5 = st.tabs([
-    "📊 技術分析 (K線/價量/指標)", 
-    "🔥 多來源輿情熱度 (媒體/Dcard/Threads)",
-    "🤖 AI 智慧摘要 (白話財報/法說會)",
-    "⚡ 即時盤態 (五檔/明細)", 
-    "🔍 籌碼與券商 (分點/法人)", 
-    "📈 基本面與績效 (資料/績效/股利/ESG)", 
-    "📅 研究與行事曆 (報告/行事曆/權證)"
-])
 
-# --- 4. 核心數據撈取 ---
-if stock_id:
+# --- 3. 主畫面邏輯控制 (防護機制) ---
+# 🌟 修改點 2：判斷使用者如果還沒輸入任何內容，就顯示歡迎與導引畫面，不執行後面複雜的爬蟲
+if not user_input.strip():
+    st.info("💡 **歡迎使用台股 AI 輿情互動分析系統！**")
+    st.markdown("""
+    請在左側的**「查詢條件」**輸入框中，輸入你想查詢的**股票名稱或代號**。
+    
+    * 範例：輸入 `2330`、`鴻海`、`星宇航空` 等。
+    * 輸入完成後按下 **Enter** 鍵即可開始分析！
+    """)
+    
+else:
+    # 只有在使用者有輸入時，才開始轉換代號與抓取數據
+    stock_id = get_valid_ticker(user_input)
+
+    # 🌟 修改點 3：修正原本 search_keyword 會變回台積電的 Bug，讓它動態對應使用者的輸入
+    search_keyword = user_input.strip()
+    for name, id_code in {
+        "台積電": "2330", "鴻海": "2317", "聯發科": "2454",
+        "長榮": "2603", "陽明": "2609", "萬海": "2615"
+    }.items():
+        if id_code in stock_id or name in user_input:
+            search_keyword = name
+
+    # --- 4. 主畫面多功能標籤頁 (在有輸入時才渲染) ---
+    tab1, tab2, tab_ai, tab2_5, tab3, tab4, tab5 = st.tabs([
+        "📊 技術分析 (K線/價量/指標)", 
+        "🔥 多來源輿情熱度 (媒體/Dcard/Threads)",
+        "🤖 AI 智慧摘要 (白話財報/法說會)",
+        "⚡ 即時盤態 (五檔/明細)", 
+        "🔍 籌碼與券商 (分點/法人)", 
+        "📈 基本面與績效 (資料/績效/股利/ESG)", 
+        "📅 研究與行事曆 (報告/行事曆/權證)"
+    ])
+
+    # --- 5. 核心數據撈取與分析頁面展示 ---
     try:
         ticker_obj = yf.Ticker(stock_id)
         df = ticker_obj.history(period="1y")
@@ -138,18 +150,16 @@ if stock_id:
                         st.warning("❄️ 趨勢：長線之下 (偏空)")
 
             # =================================================================
-            # 🌟 升級版功能：Tab 2 - 多來源輿情熱度 (結合 Dcard, Threads, FB)
+            # Tab 2: 多來源輿情熱度
             # =================================================================
             with tab2:
                 st.subheader(f"🗣️ {search_keyword} 全網社群與媒體聲量監測")
                 
                 with st.spinner("正在即時跨平台 (Dcard/Threads/媒體) 蒐集輿情數據..."):
-                    # 執行即時社群爬蟲
                     dcard_heat = fetch_dcard_volume(search_keyword)
                     threads_heat = fetch_threads_volume(search_keyword)
-                    fb_heat = int((dcard_heat + threads_heat) / 2) # FB採用權重合成估算
+                    fb_heat = int((dcard_heat + threads_heat) / 2)
                     
-                    # 1. 儀表板數據呈現
                     st.write("### 📈 各大社群即時討論熱度 (0-100 指數)")
                     c_ch1, c_ch2, c_ch3 = st.columns(3)
                     c_ch1.metric("📌 Dcard 股票板熱度", f"{dcard_heat} 🔥")
@@ -158,7 +168,6 @@ if stock_id:
                     
                     st.markdown("---")
                     
-                    # 2. 爬取 Yahoo 媒體新聞
                     try:
                         news_list = ticker_obj.news
                     except:
@@ -189,13 +198,10 @@ if stock_id:
                             for w in neg_words:
                                 if w in title_zh: negative_score += 1
                         
-                        # 3. 媒體與社群加權情緒指標
                         st.markdown("---")
                         st.write("### 📊 全網多源綜合情緒指標")
                         total_score = positive_score + negative_score
                         media_ratio = (positive_score / total_score) * 100 if total_score > 0 else 50.0
-                        
-                        # 綜合加權公式：媒體佔 40%, Dcard 佔 30%, Threads 佔 30%
                         combined_bullish_ratio = (media_ratio * 0.4) + (dcard_heat * 0.3) + (threads_heat * 0.3)
                         
                         col_m1, col_m2 = st.columns(2)
@@ -211,90 +217,4 @@ if stock_id:
                             st.write("**📱 多源即時聲量動態條**")
                             st.progress(int(min(max(combined_bullish_ratio, 0), 100)))
                             st.caption(f"監測狀態：已成功整合新聞流、Dcard理財API、Threads關鍵字權重。")
-                    else:
-                        st.info("⚠️ 暫時無法獲取網路新聞，但 Dcard/Threads 監測照常運作中。")
-
-            # =================================================================
-            # Tab 3: AI 智慧摘要
-            # =================================================================
-            with tab_ai:
-                st.subheader(f"🤖 AI 智慧一分鐘白話摘要")
-                try:
-                    info = ticker_obj.info
-                    summary_en = info.get('longBusinessSummary', '')
-                    pe_ratio = info.get('trailingPE', '無')
-                    eps = info.get('trailingEps', '無')
-                    rev_growth = info.get('revenueGrowth', 0) * 100
-                except:
-                    summary_en = ""
-                    pe_ratio, eps, rev_growth = "無", "無", 0
-
-                if summary_en:
-                    with st.spinner("AI 正在閱讀財報與法說會文本..."):
-                        try:
-                            summary_zh = GoogleTranslator(source='auto', target='zh-TW').translate(summary_en[:1000])
-                        except:
-                            summary_zh = "無法順利解析文本。"
-                        
-                        st.write("### 💡 AI 幫你畫重點：")
-                        c_ai1, c_ai2, c_ai3 = st.columns(3)
-                        c_ai1.metric("目前本益比 (P/E)", f"{pe_ratio}")
-                        c_ai2.metric("每股盈餘 (EPS)", f"{eps}")
-                        c_ai3.metric("最新季營收年增率", f"{rev_growth:+.2f}%")
-                        
-                        st.markdown("#### 📝 **一分鐘白話經營結論**")
-                        if isinstance(rev_growth, (int, float)) and rev_growth > 10:
-                            ai_judgment = "🎯 **核心成長動能強勁！** 該公司目前主要受惠於市場強烈需求，核心業務營收大幅超預期。"
-                        elif isinstance(rev_growth, (int, float)) and rev_growth < 0:
-                            ai_judgment = "⚠️ **營運進入修正調整期。** 最新財報顯示營收年增率下滑。"
-                        else:
-                            ai_judgment = "📈 **穩健經營，防守力佳。** 現階段核心營收表現持平。"
-                            
-                        st.info(ai_judgment)
-                        with st.expander("🔍 查看 AI 參考的原始公司深度業務資料"):
-                            st.write(summary_zh)
-
-            # =================================================================
-            # 其餘舊有 Tab 保持不變 (即時盤態、籌碼、績效、研究)
-            # =================================================================
-            with tab2_5:
-                st.subheader("⚡ 即時盤態觀察")
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.write("### 🔹 最佳五檔 (模擬範例)")
-                    order_book = pd.DataFrame({'買量': [120, 85, 340, 210, 95], '買價': [current_p-0.5, current_p-1.0, current_p-1.5, current_p-2.0, current_p-2.5], '賣價': [current_p+0.5, current_p+1.0, current_p+1.5, current_p+2.0, current_p+2.5], '賣量': [50, 110, 90, 310, 150]})
-                    st.table(order_book)
-                with c2:
-                    st.write("### 🔹 即時成交明細 (最新 5 筆)")
-                    detail_data = pd.DataFrame({'時間': ['13:30:00', '13:29:55', '13:29:42', '13:29:30', '13:29:15'], '成交價': [current_p, current_p-0.5, current_p, current_p+0.5, current_p], '現量': [450, 12, 5, 88, 3]})
-                    st.dataframe(detail_data, use_container_width=True)
-
-            with tab3:
-                st.subheader("🔍 籌碼與主力動向")
-                st.info("ℹ️ 提示：Yahoo Finance 未提供台灣本土「券商分點」詳細資料。")
-                cc1, cc2 = st.columns(2)
-                with cc1: st.json({"美商高盛": "買超 1,200 張", "凱基台北": "買超 850 張", "富邦台北": "買超 600 張"})
-                with cc2: st.metric("外資買賣超 (估)", "+2,450 張")
-
-            with tab4:
-                st.subheader("📈 財務基本面與永續經營")
-                sub_tab1, sub_tab2, sub_tab3, sub_tab4 = st.tabs(["📋 基本資料", "📊 營運績效", "💰 股利政策", "🌱 ESG 表現"])
-                with sub_tab1: st.info("💡 提示：本區功能已升級整合至上方的【🤖 AI 智慧摘要】分頁。")
-                with sub_tab2:
-                    perf = ((current_p - float(df['Close'].iloc[0])) / float(df['Close'].iloc[0])) * 100
-                    st.metric("過去一年累計報酬率", f"{perf:+.2f}%")
-                with sub_tab3: st.dataframe(pd.DataFrame({'年度': [2025, 2024, 2023], '現金股利': [16.0, 13.0, 11.0]}))
-                with sub_tab4: st.success("✅ 該企業在環境與公司治理層面（ESG）屬於產業領先群（A級）。")
-
-            with tab5:
-                st.subheader("📅 市場情報與周邊商品")
-                cx1, cx2, cx3 = st.columns(3)
-                with cx1: st.markdown("* [2026Q2 產業升級評估報告](#)")
-                with cx2: st.write("⊙ 07-15 : 法說會召開")
-                with cx3: st.dataframe(pd.DataFrame({'權證代號': ['03154P'], '履約價': [current_p*1.1]}))
-
-        else:
-            st.error(f"⚠️ 找不到【{user_input}】的資料。請確認輸入是否正確。")
-    except Exception as e:
-        st.error(f"❌ 程式執行發生錯誤！")
-        st.exception(e)
+                    else
