@@ -276,4 +276,4 @@ else:
                     detail_data = pd.DataFrame({'時間': ['13:30:00', '13:29:55', '13:29:42', '13:29:30', '13:29:15'], '成交價': [current_p, current_p-0.5, current_p, current_p+0.5, current_p], '現量': [450, 12, 5, 88, 3]})
                     st.dataframe(detail_data, use_container_width=True)
 
-            with tab
+            with tab:
