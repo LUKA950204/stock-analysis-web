@@ -68,7 +68,7 @@ def fetch_threads_volume(keyword):
 
 # --- 2. 側邊欄控制區 ---
 st.sidebar.header("查詢條件")
-# 🌟 修改點 1：將預設值改為空字串 ""，讓一開始進來網頁時保持留白
+# 保持一開始進來網頁時完全留白
 user_input = st.sidebar.text_input("請輸入股票名稱或代號 (例如: 2330 或 鴻海)", "")
 
 st.sidebar.markdown("---")
@@ -77,9 +77,11 @@ ma_short = st.sidebar.slider("短期均線天數", 3, 10, 5)
 ma_long = st.sidebar.slider("長期均線天數", 10, 60, 20)
 
 
-# --- 3. 主畫面邏輯控制 (防護機制) ---
-# 🌟 修改點 2：判斷使用者如果還沒輸入任何內容，就顯示歡迎與導引畫面，不執行後面複雜的爬蟲
-if not user_input.strip():
+# --- 3. 主畫面邏輯控制與防護機制 ---
+# 使用 clean_input 來判斷使用者是否真正輸入了有效文字
+clean_input = user_input.strip()
+
+if not clean_input:
     st.info("💡 **歡迎使用台股 AI 輿情互動分析系統！**")
     st.markdown("""
     請在左側的**「查詢條件」**輸入框中，輸入你想查詢的**股票名稱或代號**。
@@ -87,21 +89,20 @@ if not user_input.strip():
     * 範例：輸入 `2330`、`鴻海`、`星宇航空` 等。
     * 輸入完成後按下 **Enter** 鍵即可開始分析！
     """)
-    
 else:
     # 只有在使用者有輸入時，才開始轉換代號與抓取數據
-    stock_id = get_valid_ticker(user_input)
+    stock_id = get_valid_ticker(clean_input)
 
-    # 🌟 修改點 3：修正原本 search_keyword 會變回台積電的 Bug，讓它動態對應使用者的輸入
-    search_keyword = user_input.strip()
+    # 動態對應使用者的輸入作為輿情關鍵字
+    search_keyword = clean_input
     for name, id_code in {
         "台積電": "2330", "鴻海": "2317", "聯發科": "2454",
         "長榮": "2603", "陽明": "2609", "萬海": "2615"
     }.items():
-        if id_code in stock_id or name in user_input:
+        if id_code in stock_id or name in clean_input:
             search_keyword = name
 
-    # --- 4. 主畫面多功能標籤頁 (在有輸入時才渲染) ---
+    # --- 4. 主畫面多功能標籤頁 ---
     tab1, tab2, tab_ai, tab2_5, tab3, tab4, tab5 = st.tabs([
         "📊 技術分析 (K線/價量/指標)", 
         "🔥 多來源輿情熱度 (媒體/Dcard/Threads)",
@@ -117,8 +118,8 @@ else:
         ticker_obj = yf.Ticker(stock_id)
         df = ticker_obj.history(period="1y")
         
-        if df.empty and user_input.strip().isdigit() and stock_id.endswith(".TW"):
-            backup_stock_id = f"{user_input.strip()}.TWO"
+        if df.empty and clean_input.isdigit() and stock_id.endswith(".TW"):
+            backup_stock_id = f"{clean_input}.TWO"
             ticker_obj = yf.Ticker(backup_stock_id)
             df = ticker_obj.history(period="1y")
             if not df.empty:
@@ -137,7 +138,7 @@ else:
             with tab1:
                 col1, col2 = st.columns([3, 1])
                 with col1:
-                    st.subheader(f"📊 {user_input} ({stock_id}) 股價走勢圖")
+                    st.subheader(f"📊 {clean_input} ({stock_id}) 股價走勢圖")
                     chart_data = df[['Close', 'MA_S', 'MA_L']].copy()
                     chart_data.columns = ['收盤價', f'{ma_short}日均線', f'{ma_long}日均線']
                     st.line_chart(chart_data)
@@ -217,4 +218,62 @@ else:
                             st.write("**📱 多源即時聲量動態條**")
                             st.progress(int(min(max(combined_bullish_ratio, 0), 100)))
                             st.caption(f"監測狀態：已成功整合新聞流、Dcard理財API、Threads關鍵字權重。")
-                    else
+                    else:
+                        st.info("⚠️ 暫時無法獲取網路新聞，但 Dcard/Threads 監測照常運作中。")
+
+            # =================================================================
+            # Tab 3: AI 智慧摘要
+            # =================================================================
+            with tab_ai:
+                st.subheader(f"🤖 AI 智慧一分鐘白話摘要")
+                try:
+                    info = ticker_obj.info
+                    summary_en = info.get('longBusinessSummary', '')
+                    pe_ratio = info.get('trailingPE', '無')
+                    eps = info.get('trailingEps', '無')
+                    rev_growth = info.get('revenueGrowth', 0) * 100
+                except:
+                    summary_en = ""
+                    pe_ratio, eps, rev_growth = "無", "無", 0
+
+                if summary_en:
+                    with st.spinner("AI 正在閱讀財報與法說會文本..."):
+                        try:
+                            summary_zh = GoogleTranslator(source='auto', target='zh-TW').translate(summary_en[:1000])
+                        except:
+                            summary_zh = "無法順利解析文本。"
+                        
+                        st.write("### 💡 AI 幫你畫重點：")
+                        c_ai1, c_ai2, c_ai3 = st.columns(3)
+                        c_ai1.metric("目前本益比 (P/E)", f"{pe_ratio}")
+                        c_ai2.metric("每股盈餘 (EPS)", f"{eps}")
+                        c_ai3.metric("最新季營收年增率", f"{rev_growth:+.2f}%")
+                        
+                        st.markdown("#### 📝 **一分鐘白話經營結論**")
+                        if isinstance(rev_growth, (int, float)) and rev_growth > 10:
+                            ai_judgment = "🎯 **核心成長動能強勁！** 該公司目前主要受惠於市場強烈需求，核心業務營收大幅超預期。"
+                        elif isinstance(rev_growth, (int, float)) and rev_growth < 0:
+                            ai_judgment = "⚠️ **營運進入修正調整期。** 最新財報顯示營收年增率下滑。"
+                        else:
+                            ai_judgment = "📈 **穩健經營，防守力佳。** 現階段核心營收表現持平。"
+                            
+                        st.info(ai_judgment)
+                        with st.expander("🔍 查看 AI 參考的原始公司深度業務資料"):
+                            st.write(summary_zh)
+
+            # =================================================================
+            # 其餘舊有 Tab 
+            # =================================================================
+            with tab2_5:
+                st.subheader("⚡ 即時盤態觀察")
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.write("### 🔹 最佳五檔 (模擬範例)")
+                    order_book = pd.DataFrame({'買量': [120, 85, 340, 210, 95], '買價': [current_p-0.5, current_p-1.0, current_p-1.5, current_p-2.0, current_p-2.5], '賣價': [current_p+0.5, current_p+1.0, current_p+1.5, current_p+2.0, current_p+2.5], '賣量': [50, 110, 90, 310, 150]})
+                    st.table(order_book)
+                with c2:
+                    st.write("### 🔹 即時成交明細 (最新 5 筆)")
+                    detail_data = pd.DataFrame({'時間': ['13:30:00', '13:29:55', '13:29:42', '13:29:30', '13:29:15'], '成交價': [current_p, current_p-0.5, current_p, current_p+0.5, current_p], '現量': [450, 12, 5, 88, 3]})
+                    st.dataframe(detail_data, use_container_width=True)
+
+            with tab
